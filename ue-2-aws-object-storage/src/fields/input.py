@@ -27,33 +27,27 @@ extension_manager = ExtensionManager()
 class InputFields:
     """Input fields from UAC with validation.
 
-    Define fields based on your template.json fields using wrapper types.
-    All fields should use wrapper types from fields.types for type safety.
+    Fields correspond to template.json field definitions:
+    - action          : Choice Field 1  — the S3 operation to perform
+    - aws_credentials : Credential Field 1 — AWS IAM credentials
+    - aws_region      : Text Field 1   — AWS region for the S3 bucket
+    - bucket_name     : Text Field 2   — target S3 bucket name
+    - local_file_path : Text Field 3   — local file to upload (Upload File only)
+    - s3_object_key   : Text Field 4   — destination S3 object key (Upload File only)
 
-    All user-defined fields should be Optional[Type] = None
-    - UAC Controller enforces required field validation (template.json)
-    - By the time fields reach the extension, they may be None
-    - Only validate fields that have values (check for None first)
+    All user-defined fields are Optional — UAC enforces required-field validation
+    at the Controller level before the extension is invoked.
     """
 
-    # User-defined fields - ALWAYS Optional, even if required in template.json
+    # --- User-defined fields ---
     action: Optional[SingleChoice] = None
+    aws_credentials: Optional[Credential] = None
+    aws_region: Optional[Text] = None
+    bucket_name: Optional[Text] = None
+    local_file_path: Optional[Text] = None
+    s3_object_key: Optional[Text] = None
 
-    # Define your extension's fields here using wrapper types
-    # Example fields:
-    # resource_name: Optional[Text] = None
-    # timeout: Optional[Integer] = None
-    # api_credential: Optional[Credential] = None
-    # tags: Optional[MultiChoice] = None
-
-    # Script fields - use Script wrapper (UAC returns temp file path)
-    # sql_query: Optional[Script] = None
-    # json_payload: Optional[Script] = None
-
-    # Control fields - use MultiChoice for multi-select options
-    # stdout_options: Optional[MultiChoice] = None
-    # output_options: Optional[MultiChoice] = None
-
+    # --- Framework fields ---
     # Previous run output (auto-populated for re-runs)
     previous_output: Optional[OutputFields] = None
 
@@ -94,7 +88,7 @@ class InputFields:
             field_wrapper_types[field_name] = base_type
 
         for key, value in fields.items():
-            # Skip flattened credential fields (e.g., "api_credential.token")
+            # Skip flattened credential fields (e.g., "aws_credentials.token")
             if "." in key:
                 continue
 
@@ -222,9 +216,10 @@ class InputFields:
 
         # Call validation methods
         self._validate_action()
-        # Add your validation methods here
-        # self._validate_resource_name()
-        # self._validate_timeout()
+        self._validate_aws_region()
+        self._validate_bucket_name()
+        self._validate_local_file_path()
+        self._validate_s3_object_key()
 
         # Raise once if errors collected
         if extension_manager.has_errors():
@@ -233,98 +228,60 @@ class InputFields:
             )
 
     def _validate_action(self):
-        """Validate action field (SingleChoice wrapper).
+        """Validate action field.
 
-        Only validate fields with values - check for None first.
+        Must be one of the defined choices. UAC also enforces this at the
+        Controller level, but defensive validation is included here.
         """
-        # ALWAYS check for None first - only validate if field has a value
         if self.action is not None:
-            valid_actions = ["create", "delete", "update", "list"]  # Define your actions
-            # Access SingleChoice value via .value property
+            valid_actions = ["List Objects", "Upload File"]
             if self.action.value not in valid_actions:
                 exc = DataValidationError(
                     f"Invalid action '{self.action.value}'. Valid actions: {', '.join(valid_actions)}"
                 )
                 extension_manager.add_error(exc, field="action", value=self.action.value)
 
-    # Add your validation methods here
-    # Always check for None first - only validate fields with values
-    #
-    # def _validate_resource_name(self):
-    #     """Validate resource_name field (Text wrapper)."""
-    #     # Always check for None first
-    #     if self.resource_name is not None:
-    #         # Access Text value via .value property
-    #         if len(self.resource_name.value) == 0 or len(self.resource_name.value) > 255:
-    #             exc = DataValidationError("resource_name must be 1-255 characters")
-    #             extension_manager.add_error(
-    #                 exc, field="resource_name", value=self.resource_name.value
-    #             )
-    #
-    # def _validate_timeout(self):
-    #     """Validate timeout field (Integer wrapper)."""
-    #     # Always check for None first - only validate if field has a value
-    #     if self.timeout is not None:
-    #         # Access Integer value via .value property
-    #         if self.timeout.value < 1:
-    #             exc = DataValidationError("timeout must be >= 1")
-    #             extension_manager.add_error(exc, field="timeout", value=self.timeout.value)
-    #
-    # def _validate_sql_query(self):
-    #     """Validate sql_query script field (Script wrapper)."""
-    #     # Always check for None first - only validate if field has a value
-    #     if self.sql_query is not None:
-    #         # Validate file exists using Script wrapper method
-    #         if not self.sql_query.exists():
-    #             exc = DataValidationError("SQL query file not found")
-    #             extension_manager.add_error(exc, field="sql_query")
-    #             return
-    #
-    #         # Read content using Script wrapper method
-    #         try:
-    #             content = self.sql_query.read()
-    #             if not content.strip():
-    #                 exc = DataValidationError("SQL query cannot be empty")
-    #                 extension_manager.add_error(exc, field="sql_query")
-    #         except Exception as e:
-    #             exc = DataValidationError(f"Failed to read SQL query: {str(e)}")
-    #             extension_manager.add_error(exc, field="sql_query")
-    #
-    # def _validate_headers(self):
-    #     """Validate headers array field (Array wrapper).
-    #
-    #     IMPORTANT: UAC sends arrays in FLATTENED format!
-    #     Task definition has: {"name": "X", "value": "Y"}
-    #     UAC transforms to: {"X": "Y"}
-    #
-    #     See Array class documentation in fields/types.py for details.
-    #     """
-    #     # Always check for None first - only validate if field has a value
-    #     if self.headers is not None:
-    #         # Access Array pairs (list of flattened dicts)
-    #         header_list = self.headers.pairs
-    #
-    #         for idx, header in enumerate(header_list):
-    #             # Check if dictionary is empty
-    #             if not header:
-    #                 exc = DataValidationError(f"Header at index {idx} is empty")
-    #                 extension_manager.add_error(exc, field="headers", index=idx)
-    #                 continue
-    #
-    #             # Extract key from flattened format: {"X": "Y"}
-    #             # Do NOT check for "name" property - it doesn't exist!
-    #             header_name = next(iter(header.keys()), "")
-    #             if not header_name:
-    #                 exc = DataValidationError(
-    #                     f"Header at index {idx} must have a non-empty name"
-    #                 )
-    #                 extension_manager.add_error(exc, field="headers", index=idx)
-    #                 continue
-    #
-    #             # Optional: validate header value
-    #             header_value = header[header_name]
-    #             if header_value is None:
-    #                 exc = DataValidationError(
-    #                     f"Header '{header_name}' at index {idx} has null value"
-    #                 )
-    #                 extension_manager.add_error(exc, field="headers", index=idx)
+    def _validate_aws_region(self):
+        """Validate aws_region field.
+
+        Must be non-empty when provided. UAC enforces required at the Controller
+        level; this validates the format when a value is present.
+        """
+        if self.aws_region is not None and self.aws_region.value == "":
+            exc = DataValidationError("aws_region must not be empty")
+            extension_manager.add_error(exc, field="aws_region")
+
+    def _validate_bucket_name(self):
+        """Validate bucket_name field.
+
+        Must be non-empty when provided.
+        """
+        if self.bucket_name is not None and self.bucket_name.value == "":
+            exc = DataValidationError("bucket_name must not be empty")
+            extension_manager.add_error(exc, field="bucket_name")
+
+    def _validate_local_file_path(self):
+        """Validate local_file_path field.
+
+        Only required when action is 'Upload File'. UAC sends an empty string
+        for hidden fields, so check for both None and empty string.
+        """
+        if self.action and self.action.value == "Upload File":
+            if not self.local_file_path or self.local_file_path.value == "":
+                exc = DataValidationError(
+                    "local_file_path is required when action is 'Upload File'"
+                )
+                extension_manager.add_error(exc, field="local_file_path")
+
+    def _validate_s3_object_key(self):
+        """Validate s3_object_key field.
+
+        Only required when action is 'Upload File'. UAC sends an empty string
+        for hidden fields, so check for both None and empty string.
+        """
+        if self.action and self.action.value == "Upload File":
+            if not self.s3_object_key or self.s3_object_key.value == "":
+                exc = DataValidationError(
+                    "s3_object_key is required when action is 'Upload File'"
+                )
+                extension_manager.add_error(exc, field="s3_object_key")

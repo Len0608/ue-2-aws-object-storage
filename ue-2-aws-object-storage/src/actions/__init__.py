@@ -1,13 +1,13 @@
-"""Actions module - Business logic implementations."""
+"""Actions module — business logic implementations for AWS Object Storage."""
 
 from actions.output import ActionOutput
-from manager import ExtensionManager
-extension_manager = ExtensionManager()
+from actions.list_objects import list_objects_action
+from actions.upload_file import upload_file_action
 
-# Import your action functions here
-# from actions.action_name import action_function
-
-# Map action names to functions
+# Maps action field values (as returned by input_data.action.value) to the
+# corresponding action function.  Keys must match the Choice Field option
+# values defined in template.json.
 ACTION_MAPPER = {
-    # "action_name": action_function,
+    "List Objects": list_objects_action,
+    "Upload File": upload_file_action,
 }
